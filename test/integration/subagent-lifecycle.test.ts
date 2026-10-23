@@ -2,14 +2,14 @@
  * Integration tests for the full subagent lifecycle.
  *
  * These tests spawn REAL pi sessions with REAL LLM calls (haiku by default).
- * Each test creates a tmux pane, runs pi with a task that uses the subagent
- * tool, and verifies the outcome via marker files and screen output.
+ * Each test creates an Orca terminal pane, runs pi with a task that uses the
+ * subagent tool, and verifies the outcome via marker files and screen output.
  *
  * Costs: ~$0.01-0.05 per test run (haiku).
  * Duration: ~30-90s per test.
  *
- * Run inside tmux:
- *   tmux new 'npm run test:integration'
+ * Run from an Orca terminal:
+ *   npm run test:integration
  *
  * Configuration:
  *   PI_TEST_MODEL     — model for all pi sessions (default: anthropic/claude-haiku-4-5)
@@ -37,8 +37,8 @@ import {
 const backends = getAvailableBackends();
 
 if (backends.length === 0) {
-  console.log("⚠️  tmux is not available — skipping subagent lifecycle integration tests");
-  console.log("   Run inside tmux to enable these tests.");
+  console.log("⚠️  Orca is not available — skipping subagent lifecycle integration tests");
+  console.log("   Run Pi from an Orca terminal to enable these tests.");
 }
 
 for (const backend of backends) {
@@ -49,8 +49,8 @@ for (const backend of backends) {
       env = createTestEnv();
     });
 
-    after(() => {
-      cleanupTestEnv(env);
+    after(async () => {
+      await cleanupTestEnv(env);
     });
 
     // ── Basic spawn + completion ──
@@ -60,7 +60,7 @@ for (const backend of backends) {
       const markerFile = `/tmp/pi-integ-echo-${id}.txt`;
       trackTempFile(env, markerFile);
 
-      const surface = createTrackedSurface(env, `echo-${id}`);
+      const surface = await createTrackedSurface(env, `echo-${id}`);
       await sleep(1000);
 
       const task = [
@@ -72,7 +72,7 @@ for (const backend of backends) {
         `After you receive the subagent result, say INTEGRATION_COMPLETE.`,
       ].join("\n");
 
-      startPi(surface, env.dir, task);
+      await startPi(surface, env.dir, task);
 
       // Verify: subagent created the marker file
       const content = await waitForFile(markerFile, PI_TIMEOUT, /PASS/);
@@ -112,7 +112,7 @@ for (const backend of backends) {
       trackTempFile(env, startFile);
       trackTempFile(env, markerFile);
 
-      const surface = createTrackedSurface(env, `status-${id}`);
+      const surface = await createTrackedSurface(env, `status-${id}`);
       await sleep(1000);
 
       const task = [
@@ -124,7 +124,7 @@ for (const backend of backends) {
         `After you receive the subagent result, say STATUS_TEST_DONE.`,
       ].join("\n");
 
-      startPi(surface, env.dir, task);
+      await startPi(surface, env.dir, task);
 
       const activeScreen = await waitForScreen(surface, /active[\s\S]*bash|bash[\s\S]*active/i, PI_TIMEOUT, 300);
       assert.doesNotMatch(activeScreen, /Subagent status[\s\S]*stalled|stalled[\s\S]*Subagent status/i);
@@ -133,7 +133,7 @@ for (const backend of backends) {
       assert.equal(existsSync(markerFile), false, "Completion marker should not exist before the long sleep");
       await sleep(65_000);
       assert.equal(existsSync(markerFile), false, "Completion marker should not exist before the watchdog assertion");
-      const watchdogScreen = readScreen(surface, 300);
+      const watchdogScreen = await readScreen(surface, 300);
       assert.doesNotMatch(watchdogScreen, /Subagent status[\s\S]*stalled|stalled[\s\S]*Subagent status/i);
 
       const content = await waitForFile(markerFile, PI_TIMEOUT, /STATUS_/);
@@ -157,7 +157,7 @@ for (const backend of backends) {
       trackTempFile(env, fileA);
       trackTempFile(env, fileB);
 
-      const surface = createTrackedSurface(env, `parallel-${id}`);
+      const surface = await createTrackedSurface(env, `parallel-${id}`);
       await sleep(1000);
 
       const task = [
@@ -176,7 +176,7 @@ for (const backend of backends) {
         `Call both subagent tools NOW, do not wait between them.`,
       ].join("\n");
 
-      startPi(surface, env.dir, task);
+      await startPi(surface, env.dir, task);
 
       // Both marker files should appear
       const [contentA, contentB] = await Promise.all([
@@ -195,7 +195,7 @@ for (const backend of backends) {
       const markerFile = `/tmp/pi-integ-fork-${id}.txt`;
       trackTempFile(env, markerFile);
 
-      const surface = createTrackedSurface(env, `fork-${id}`);
+      const surface = await createTrackedSurface(env, `fork-${id}`);
       await sleep(1000);
 
       const task = [
@@ -207,7 +207,7 @@ for (const backend of backends) {
         `After you receive the result, say FORK_COMPLETE.`,
       ].join("\n");
 
-      startPi(surface, env.dir, task);
+      await startPi(surface, env.dir, task);
 
       // Verify: forked subagent created the file
       const content = await waitForFile(markerFile, PI_TIMEOUT, /FORK_OK/);
@@ -243,7 +243,7 @@ for (const backend of backends) {
     it("subagent caller_ping sends notification back to the parent", async () => {
       const id = uniqueId();
 
-      const surface = createTrackedSurface(env, `ping-${id}`);
+      const surface = await createTrackedSurface(env, `ping-${id}`);
       await sleep(1000);
 
       const task = [
@@ -254,7 +254,7 @@ for (const backend of backends) {
         `Just call the subagent tool once. Do not do anything else before calling it.`,
       ].join("\n");
 
-      startPi(surface, env.dir, task);
+      await startPi(surface, env.dir, task);
 
       // The test-ping agent calls caller_ping, which steers a "needs help" message
       // back to the outer pi. Look for it on screen.
@@ -277,7 +277,7 @@ for (const backend of backends) {
       const markerFile = `/tmp/pi-integ-discovery-${id}.txt`;
       trackTempFile(env, markerFile);
 
-      const surface = createTrackedSurface(env, `discovery-${id}`);
+      const surface = await createTrackedSurface(env, `discovery-${id}`);
       await sleep(1000);
 
       // Use subagents_list to verify test agents are discoverable,
@@ -291,7 +291,7 @@ for (const backend of backends) {
         `After you receive the subagent result, say DISCOVERY_DONE.`,
       ].join("\n");
 
-      startPi(surface, env.dir, task);
+      await startPi(surface, env.dir, task);
 
       // The test-echo agent (discovered from project .pi/agents/) should work
       const content = await waitForFile(markerFile, PI_TIMEOUT, /DISCO/);
@@ -305,7 +305,7 @@ for (const backend of backends) {
       const markerFile = `/tmp/pi-integ-sysprompt-${id}.txt`;
       trackTempFile(env, markerFile);
 
-      const surface = createTrackedSurface(env, `sysprompt-${id}`);
+      const surface = await createTrackedSurface(env, `sysprompt-${id}`);
       await sleep(1000);
 
       const task = [
@@ -317,7 +317,7 @@ for (const backend of backends) {
         `After the subagent completes, say SYSPROMPT_TEST_DONE.`,
       ].join("\n");
 
-      startPi(surface, env.dir, task);
+      await startPi(surface, env.dir, task);
 
       const content = await waitForFile(markerFile, PI_TIMEOUT, /SYSPROMPT/);
       assert.ok(content.includes(`SYSPROMPT_${id}`), `System prompt test marker should exist`);

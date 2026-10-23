@@ -15,8 +15,8 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import {
-  isMuxAvailable,
-  muxSetupHint,
+  isOrcaAvailable,
+  orcaSetupHint,
   createSurface,
   sendCommand,
   sendLongCommand,
@@ -24,7 +24,7 @@ import {
   closeSurface,
   shellEscape,
   readScreen,
-} from "./tmux.ts";
+} from "./orca.ts";
 
 import {
   countSessionEntryLines,
@@ -503,15 +503,15 @@ function getShellReadyDelayMs(): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 500;
 }
 
-function muxUnavailableResult() {
+function orcaUnavailableResult() {
   return {
     content: [
       {
         type: "text" as const,
-        text: `Subagents require tmux. ${muxSetupHint()}`,
+        text: `Subagents require Orca. ${orcaSetupHint()}`,
       },
     ],
-    details: { error: "tmux not available" },
+    details: { error: "Orca not available" },
   };
 }
 
@@ -996,27 +996,27 @@ function resolveRunningByName(name: string):
  * collapsed to spaces because each newline submits a turn in the child's TUI
  * editor; a multi-line message would otherwise fire as several partial turns.
  */
-function steerSubagent(
+async function steerSubagent(
   running: RunningSubagent,
   message: string,
-  send: (surface: string, command: string) => void = sendCommand,
-): { ok: true } | { error: string } {
+  send: (surface: string, command: string) => Promise<void> = sendCommand,
+): Promise<{ ok: true } | { error: string }> {
   const flattened = message.replace(/\s*\n\s*/g, " ").trim();
   try {
-    send(running.surface, flattened);
+    await send(running.surface, flattened);
     return { ok: true };
   } catch (error: any) {
     return {
       error:
-        `Failed to deliver message to subagent "${running.name}" via tmux: ` +
+        `Failed to deliver message to subagent "${running.name}" via Orca: ` +
         `${error?.message ?? String(error)}`,
     };
   }
 }
 
-function handleSubagentSteer(
+async function handleSubagentSteer(
   params: { name?: string; message?: string },
-  send: (surface: string, command: string) => void = sendCommand,
+  send: (surface: string, command: string) => Promise<void> = sendCommand,
 ) {
   const message = params.message?.trim();
   if (!message) {
@@ -1036,7 +1036,7 @@ function handleSubagentSteer(
   const now = Date.now();
   observeRunningSubagent(running, now);
 
-  const steer = steerSubagent(running, message, send);
+  const steer = await steerSubagent(running, message, send);
   if ("error" in steer) {
     return {
       content: [{ type: "text" as const, text: steer.error }],
@@ -1160,7 +1160,7 @@ function startWidgetRefresh() {
 }
 
 /**
- * Launch a subagent: creates the multiplexer pane, builds the command, and
+ * Launch a subagent: creates the Orca terminal pane, builds the command, and
  * sends it. Returns a RunningSubagent — does NOT poll.
  *
  * Call watchSubagent() on the returned object to observe completion.
@@ -1204,7 +1204,7 @@ async function launchSubagent(
   // Use pre-created surface (parallel mode) or create a new one.
   // For new surfaces, pause briefly so the shell is ready before sending the command.
   const surfacePreCreated = !!options?.surface;
-  const surface = options?.surface ?? createSurface(params.name);
+  const surface = options?.surface ?? (await createSurface(params.name));
   if (!surfacePreCreated) {
     await new Promise<void>((resolve) => setTimeout(resolve, getShellReadyDelayMs()));
   }
@@ -1281,7 +1281,7 @@ async function launchSubagent(
       .replace(/^-|-$/g, "") || "subagent"}-${id}.sh`;
     const launchScriptFile = join(artifactDir, "subagent-scripts", launchScriptName);
 
-    sendLongCommand(surface, command, {
+    await sendLongCommand(surface, command, {
       scriptPath: launchScriptFile,
       scriptPreamble: [
         `# Claude Code subagent launch script for ${params.name}`,
@@ -1422,7 +1422,7 @@ async function launchSubagent(
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "") || "subagent"}-${id}.sh`;
   const launchScriptFile = join(artifactDir, "subagent-scripts", launchScriptName);
-  sendLongCommand(surface, command, {
+  await sendLongCommand(surface, command, {
     scriptPath: launchScriptFile,
     scriptPreamble: [
       `# Subagent launch script for ${params.name}`,
@@ -1551,7 +1551,7 @@ async function watchSubagent(
       }
 
       if (!summary) {
-        summary = readScreen(surface, 200)
+        summary = await readScreen(surface, 200)
           .replace(/__SUBAGENT_DONE_\d+__/, "")
           .trimEnd();
       }
@@ -1570,7 +1570,7 @@ async function watchSubagent(
         try { unlinkSync(running.sentinelFile + ".transcript"); } catch {}
       }
 
-      closeSurface(surface);
+      await closeSurface(surface);
       runningSubagents.delete(running.id);
 
       return { name, task, summary, exitCode: result.exitCode, elapsed, ...(sessionId ? { claudeSessionId: sessionId } : {}) };
@@ -1598,7 +1598,7 @@ async function watchSubagent(
     const stats = existsSync(sessionFile) ? summarizeSessionStats(sessionFile) : null;
     const subagentSessionId = existsSync(sessionFile) ? getSessionId(sessionFile) : null;
 
-    closeSurface(surface);
+    await closeSurface(surface);
     runningSubagents.delete(running.id);
 
     return {
@@ -1614,7 +1614,7 @@ async function watchSubagent(
     };
   } catch (err: any) {
     try {
-      closeSurface(surface);
+      await closeSurface(surface);
     } catch {}
     runningSubagents.delete(running.id);
 
@@ -1685,14 +1685,14 @@ export default function subagentsExtension(pi: ExtensionAPI) {
       name: "subagent",
       label: "Subagent",
       description:
-        "Spawn a sub-agent in a dedicated terminal multiplexer pane. " +
+        "Spawn a sub-agent in a dedicated Orca terminal pane. " +
         "This is a fire-and-forget async tool: the call returns immediately with only an acknowledgement. " +
         "When the sub-agent finishes, the harness AUTOMATICALLY delivers its result as a steer message that wakes you up and starts a new turn — you do not need to do anything to receive it. " +
         "DO NOT write polling loops, sleep/wait commands, tail/watch scripts, or repeatedly read session/log files to detect completion. DO NOT call subagents_list or any other tool to 'check' status. All of that is wasted work — the harness handles delivery for you. " +
         "DO NOT fabricate, assume, or summarize results after calling this tool. " +
         "After spawning, either end your turn immediately, or work on other independent tasks (including spawning more subagents in parallel). The harness will wake you with the result when it is ready.",
       promptSnippet:
-        "Spawn a sub-agent in a dedicated terminal multiplexer pane. " +
+        "Spawn a sub-agent in a dedicated Orca terminal pane. " +
         "This is a fire-and-forget async tool: the call returns immediately with only an acknowledgement. " +
         "When the sub-agent finishes, the harness AUTOMATICALLY delivers its result as a steer message that wakes you up and starts a new turn — you do not need to do anything to receive it. " +
         "DO NOT write polling loops, sleep/wait commands, tail/watch scripts, or repeatedly read session/log files to detect completion. DO NOT call subagents_list or any other tool to 'check' status. All of that is wasted work — the harness handles delivery for you. " +
@@ -1758,10 +1758,10 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           };
         }
 
-        // Validate prerequisites (need mux + a session file to derive the
+        // Validate prerequisites (need Orca + a session file to derive the
         // artifact dir that hosts this session's name registry).
-        if (!isMuxAvailable()) {
-          return muxUnavailableResult();
+        if (!isOrcaAvailable()) {
+          return orcaUnavailableResult();
         }
 
         if (!ctx.sessionManager.getSessionFile()) {
@@ -2078,15 +2078,15 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           return { content: [{ type: "text" as const, text: err }], details: { error: err } };
         }
 
-        if (!isMuxAvailable()) {
-          return muxUnavailableResult();
+        if (!isOrcaAvailable()) {
+          return orcaUnavailableResult();
         }
 
         // ── Steer a running subagent ──
         // A name that matches a currently-running subagent always steers it.
         const runningMatch = Array.from(runningSubagents.values()).find((r) => r.name === requestedName);
         if (runningMatch) {
-          return handleSubagentSteer({ name: requestedName, message: params.message });
+          return await handleSubagentSteer({ name: requestedName, message: params.message });
         }
 
         // ── Resume a finished session by name ──
@@ -2125,7 +2125,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         for (const r of runningSubagents.values()) {
           if (resolve(r.sessionFile) === resolve(sessionPath)) {
             const err = `Subagent "${requestedName}" is still running as "${r.name}". Your message will steer it; resending as a steer.`;
-            return handleSubagentSteer({ name: r.name, message: params.message });
+            return await handleSubagentSteer({ name: r.name, message: params.message });
           }
         }
 
@@ -2149,7 +2149,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         // transcript doesn't block the UI.
         const entryCountBefore = countSessionEntryLines(sessionPath);
 
-        const surface = createSurface(name);
+        const surface = await createSurface(name);
         await new Promise<void>((resolve) => setTimeout(resolve, getShellReadyDelayMs()));
 
         // Build pi resume command
@@ -2223,7 +2223,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
             .replace(/-+/g, "-")
             .replace(/^-|-$/g, "") || "resume"}-resume-${Date.now()}.sh`,
         );
-        sendLongCommand(surface, command, {
+        await sendLongCommand(surface, command, {
           scriptPath: launchScriptFile,
           scriptPreamble: [
             `# Subagent resume script for ${name}`,

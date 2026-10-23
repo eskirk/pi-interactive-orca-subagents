@@ -1,10 +1,10 @@
 /**
- * Integration test harness for pi-interactive-subagents.
+ * Integration test harness for pi-interactive-orca-subagents.
  *
  * Provides utilities to:
- * - Detect whether tmux is available
+ * - Detect whether Orca is available
  * - Create isolated test environments with test agent definitions
- * - Start real pi sessions in tmux panes
+ * - Start real pi sessions in Orca terminal panes
  * - Poll for file creation and screen output
  * - Clean up panes and temp files after tests
  */
@@ -23,7 +23,7 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import {
-  isMuxAvailable,
+  isOrcaAvailable,
   createSurface,
   createSurfaceSplit,
   sendCommand,
@@ -32,9 +32,9 @@ import {
   readScreenAsync,
   closeSurface,
   shellEscape,
-} from "../../pi-extension/subagents/tmux.ts";
+} from "../../pi-extension/subagents/orca.ts";
 
-// Re-export tmux primitives for tests
+// Re-export Orca primitives for tests
 export {
   createSurface,
   createSurfaceSplit,
@@ -75,28 +75,59 @@ export const PI_TIMEOUT = Number(process.env.PI_TEST_TIMEOUT ?? "120000");
 
 // ── Backend detection ──
 
-/**
- * Detect whether tmux is available in the current environment.
- * Returns ["tmux"] or [].
- */
+function orcaCommand(): string {
+  return process.env.ORCA_CLI_COMMAND?.trim() || "orca";
+}
+
+function runOrca(args: string[]): any {
+  const output = execFileSync(orcaCommand(), [...args, "--json"], { encoding: "utf8" });
+  return JSON.parse(output);
+}
+
+function currentWorktreeSelector(): string {
+  return process.env.ORCA_WORKTREE_ID ? `id:${process.env.ORCA_WORKTREE_ID}` : "active";
+}
+
+function findActivePane(node: any): string | null {
+  if (!node || typeof node !== "object") return null;
+  if (node.type === "terminal" && node.active && typeof node.handle === "string") {
+    return node.handle;
+  }
+
+  for (const child of Object.values(node)) {
+    const handle = findActivePane(child);
+    if (handle) return handle;
+  }
+  return null;
+}
+
+/** Detect whether the current process is running in an Orca terminal. */
 export function getAvailableBackends(): string[] {
-  return isMuxAvailable() ? ["tmux"] : [];
+  return isOrcaAvailable() ? ["orca"] : [];
 }
 
 export function focusSurface(surface: string): void {
-  execFileSync("tmux", ["select-pane", "-t", surface], { encoding: "utf8" });
+  runOrca(["terminal", "switch", "--terminal", surface]);
 }
 
 export function getFocusedSurface(): string | null {
   try {
-    const panes = execFileSync("tmux", ["list-panes", "-F", "#{pane_id} #{pane_active}"], {
-      encoding: "utf8",
-    });
-    const activeLine = panes.split("\n").find((line) => line.endsWith(" 1"));
-    return activeLine?.split(" ")[0] ?? null;
-  } catch {
-    return null;
-  }
+    const payload = runOrca([
+      "terminal",
+      "list",
+      "--worktree",
+      currentWorktreeSelector(),
+      "--include-visual-layouts",
+    ]);
+    const layouts = payload?.result?.visualLayouts ?? [];
+    for (const layout of layouts) {
+      const root = layout?.root;
+      const activeTab = root?.tabs?.find((tab: any) => tab.tabId === root.activeTabId);
+      const handle = findActivePane(activeTab?.panes);
+      if (handle) return handle;
+    }
+  } catch {}
+  return null;
 }
 
 export async function waitForFocusedSurface(
@@ -110,7 +141,7 @@ export async function waitForFocusedSurface(
   }
 
   throw new Error(
-    `Timeout (${timeout}ms) waiting for focused tmux pane ${surface}; ` +
+    `Timeout (${timeout}ms) waiting for focused Orca pane ${surface}; ` +
       `current focus is ${getFocusedSurface() ?? "unknown"}`,
   );
 }
@@ -120,7 +151,7 @@ export async function waitForFocusedSurface(
 export interface TestEnv {
   /** Temp directory serving as the test project root */
   dir: string;
-  /** Panes created during the test (cleaned up automatically) */
+  /** Orca terminal panes created during the test (cleaned up automatically) */
   surfaces: string[];
   /** Temp files to clean up */
   tempFiles: string[];
@@ -150,10 +181,10 @@ export function createTestEnv(): TestEnv {
 /**
  * Clean up all resources created during the test.
  */
-export function cleanupTestEnv(env: TestEnv): void {
+export async function cleanupTestEnv(env: TestEnv): Promise<void> {
   for (const surface of env.surfaces) {
     try {
-      closeSurface(surface);
+      await closeSurface(surface);
     } catch {}
   }
   for (const file of env.tempFiles) {
@@ -169,19 +200,19 @@ export function cleanupTestEnv(env: TestEnv): void {
 /**
  * Create a surface and register it for automatic cleanup.
  */
-export function createTrackedSurface(env: TestEnv, name: string): string {
-  const surface = createSurface(name);
+export async function createTrackedSurface(env: TestEnv, name: string): Promise<string> {
+  const surface = await createSurface(name);
   env.surfaces.push(surface);
   return surface;
 }
 
-export function createTrackedSurfaceSplit(
+export async function createTrackedSurfaceSplit(
   env: TestEnv,
   name: string,
   direction: "left" | "right" | "up" | "down",
   fromSurface?: string,
-): string {
-  const surface = createSurfaceSplit(name, direction, fromSurface);
+): Promise<string> {
+  const surface = await createSurfaceSplit(name, direction, fromSurface);
   env.surfaces.push(surface);
   return surface;
 }
@@ -196,18 +227,18 @@ export function untrackSurface(env: TestEnv, surface: string): void {
 // ── Pi session management ──
 
 /**
- * Start a pi session in a mux surface with the subagents extension loaded.
+ * Start a pi session in an Orca terminal pane with the subagents extension loaded.
  * Returns immediately — the pi process runs asynchronously in the surface.
  *
  * The command ends with a sentinel so we can detect when pi exits:
  *   `pi ...; echo '__TEST_DONE_'$?'__'`
  */
-export function startPi(
+export async function startPi(
   surface: string,
   testDir: string,
   task: string,
   opts?: { model?: string; extraArgs?: string },
-): void {
+): Promise<void> {
   const model = opts?.model ?? TEST_MODEL;
   const extra = opts?.extraArgs ?? "";
 
@@ -227,7 +258,7 @@ export function startPi(
     .filter(Boolean)
     .join(" ");
 
-  sendLongCommand(surface, `${cmd}; echo '__TEST_DONE_'$?'__'`, {
+  await sendLongCommand(surface, `${cmd}; echo '__TEST_DONE_'$?'__'`, {
     scriptPath: join(testDir, `test-launch-${Date.now()}.sh`),
   });
 }
@@ -255,7 +286,7 @@ export async function waitForScreen(
 
   let finalScreen = "";
   try {
-    finalScreen = readScreen(surface, lines);
+    finalScreen = await readScreen(surface, lines);
   } catch {}
   throw new Error(
     `Timeout (${timeout}ms) waiting for pattern ${pattern}.\nLast screen:\n${finalScreen.slice(-1000)}`,

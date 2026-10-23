@@ -1,12 +1,12 @@
-# pi-interactive-subagents
+# pi-interactive-orca-subagents
 
-Async subagents for [pi](https://github.com/badlogic/pi-mono), running in tmux panes. Spawn a sub-agent, keep working in the main session, and get the result steered back when it finishes. Fully non-blocking.
+Async subagents for [Pi](https://github.com/badlogic/pi-mono), running in native Orca terminal panes. Spawn a sub-agent, keep working in the main session, and get the result steered back when it finishes. Fully non-blocking.
 
-**tmux-only fork.** See [Acknowledgements](#acknowledgements) for the upstream project, which also supports cmux, zellij, and WezTerm.
+**Orca-only fork.** This fork replaces the tmux surface layer with Orca's terminal CLI and native pane splitting.
 
 ## How it works
 
-`subagent()` returns immediately. The sub-agent runs in its own tmux pane — a right split off the parent pi pane, so pane creation never steals keyboard focus. A live widget above the input tracks every running sub-agent, and when one finishes, its result is steered into the main session as a notification that triggers a new turn.
+`subagent()` returns immediately. The sub-agent runs in its own Orca terminal pane, split from the parent Pi terminal. A live widget above the input tracks every running sub-agent, and when one finishes, its result is steered into the main session as a notification that triggers a new turn.
 
 ```
 ╭─ Subagents ──────────────────────────── 2 running ─╮
@@ -17,7 +17,7 @@ Async subagents for [pi](https://github.com/badlogic/pi-mono), running in tmux p
 
 Spawn several in parallel — they run concurrently and steer results back independently as each finishes.
 
-Panes are kept evenly sized: the extension re-applies an `even-horizontal` layout after every spawn and exit (debounced). The layout is a single constant, `SUBAGENT_TMUX_LAYOUT` in `pi-extension/subagents/tmux.ts` — change it to any named tmux layout (`main-vertical`, `tiled`, …).
+Pane layout is managed by Orca. The extension uses native horizontal or vertical terminal splits and does not impose a separate layout policy.
 
 If your shell startup is slow and launch commands get dropped before the prompt is ready, raise the delay:
 
@@ -29,7 +29,7 @@ export PI_SUBAGENT_SHELL_READY_DELAY_MS=2500   # default: 500
 
 | Tool | Description |
 | --- | --- |
-| `subagent` | Spawn a sub-agent in a dedicated tmux pane (async) |
+| `subagent` | Spawn a sub-agent in a dedicated Orca terminal pane (async) |
 | `subagent_message` | Message a sub-agent by name — steers it if running, resumes its session if finished |
 | `subagents_list` | List available agent definitions |
 | `ask_question` | *(sub-agent sessions only)* Ask the orchestrator a question and wait for the reply |
@@ -175,18 +175,24 @@ Status display is configured via `config.json` in the extension directory (copy 
 }
 ```
 
-## Requirements
-
-- [pi](https://github.com/badlogic/pi-mono)
-- [tmux](https://github.com/tmux/tmux)
+## Install
 
 ```bash
-tmux new -A -s pi 'pi'
+pi install git:github.com/eskirk/pi-interactive-orca-subagents
 ```
+
+## Requirements
+
+- [Pi](https://github.com/badlogic/pi-mono)
+- [Orca](https://github.com/stablyai/orca)
+- the `orca` CLI available on `PATH`
+- Pi launched from an Orca-managed terminal
+
+The extension uses `ORCA_TERMINAL_HANDLE`, which Orca provides to managed terminal processes. Set `ORCA_CLI_COMMAND` when the CLI is not available as `orca` on `PATH`.
 
 ## Acknowledgements
 
-Forked from [HazAT/pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents), which originated the subagent architecture, the multi-multiplexer surface layer, and the status widget; its supervision features were inspired by [RepoPrompt](https://repoprompt.com/).
+Forked from [amosblomqvist/pi-interactive-subagents](https://github.com/amosblomqvist/pi-interactive-subagents), which originated the subagent architecture and status widget; its supervision features were inspired by [RepoPrompt](https://repoprompt.com/).
 
 ## License
 

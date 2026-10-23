@@ -30,7 +30,7 @@ import {
   summarizeSessionStats,
 } from "../pi-extension/subagents/session.ts";
 
-import { shellEscape } from "../pi-extension/subagents/tmux.ts";
+import { shellEscape } from "../pi-extension/subagents/orca.ts";
 import {
   advanceStatusState,
   capStatusLines,
@@ -56,7 +56,7 @@ import {
   runningChildrenCount,
 } from "../pi-extension/subagents/subagent-done.ts";
 import subagentDoneExtension from "../pi-extension/subagents/subagent-done.ts";
-import { __pollForExitTest__ } from "../pi-extension/subagents/tmux.ts";
+import { __pollForExitTest__ } from "../pi-extension/subagents/orca.ts";
 
 // --- Helpers ---
 
@@ -125,11 +125,11 @@ function restoreEnvVar(name: string, value: string | undefined) {
   process.env[name] = value;
 }
 
-function withMockedNow<T>(now: number, fn: () => T): T {
+async function withMockedNow<T>(now: number, fn: () => Promise<T>): Promise<T> {
   const originalNow = Date.now;
   Date.now = () => now;
   try {
-    return fn();
+    return await fn();
   } finally {
     Date.now = originalNow;
   }
@@ -1741,7 +1741,7 @@ describe("subagent-done.ts", () => {
   });
 });
 
-describe("tmux.ts interpretExitSidecar", () => {
+describe("orca.ts interpretExitSidecar", () => {
   const { interpretExitSidecar } = __pollForExitTest__;
 
   it("no longer decodes ping payloads (ask_question keeps the session open instead)", () => {
@@ -2214,13 +2214,13 @@ describe("subagent interruption", () => {
     }
   });
 
-  it("steers a running subagent by typing into its pane (newlines flattened)", () => {
+  it("steers a running subagent by typing into its pane (newlines flattened)", async () => {
     const testApi = (subagentsModule as any).__test__;
     let sentSurface = "";
     let sentText = "";
     const running = makeRunning();
 
-    const result = testApi.steerSubagent(running, "do this\nthen that", (surface: string, text: string) => {
+    const result = await testApi.steerSubagent(running, "do this\nthen that", async (surface: string, text: string) => {
       sentSurface = surface;
       sentText = text;
     });
@@ -2230,18 +2230,18 @@ describe("subagent interruption", () => {
     assert.equal(sentText, "do this then that");
   });
 
-  it("returns an explicit error when steering delivery fails", () => {
+  it("returns an explicit error when steering delivery fails", async () => {
     const testApi = (subagentsModule as any).__test__;
     const running = makeRunning();
 
-    const result = testApi.steerSubagent(running, "hi", () => {
-      throw new Error("mux write failed");
+    const result = await testApi.steerSubagent(running, "hi", async () => {
+      throw new Error("Orca write failed");
     });
 
     assert.match(result.error, /Failed to deliver message/);
   });
 
-  it("delivers a steer message and forces local status waiting", () => {
+  it("delivers a steer message and forces local status waiting", async () => {
     const testApi = (subagentsModule as any).__test__;
     const runningMap = testApi.runningSubagents as Map<string, any>;
     let sentSurface = "";
@@ -2266,8 +2266,8 @@ describe("subagent interruption", () => {
     try {
       runningMap.set("a1", makeRunning({ statusState: activeState }));
 
-      const result = withMockedNow(20_000, () =>
-        testApi.handleSubagentSteer({ name: "Worker", message: "keep going" }, (surface: string, text: string) => {
+      const result = await withMockedNow(20_000, async () =>
+        testApi.handleSubagentSteer({ name: "Worker", message: "keep going" }, async (surface: string, text: string) => {
           sentSurface = surface;
           sentText = text;
         }),
@@ -2285,20 +2285,20 @@ describe("subagent interruption", () => {
     }
   });
 
-  it("requires a message when steering", () => {
+  it("requires a message when steering", async () => {
     const testApi = (subagentsModule as any).__test__;
     const runningMap = testApi.runningSubagents as Map<string, any>;
     runningMap.clear();
     try {
       runningMap.set("a1", makeRunning());
-      const result = testApi.handleSubagentSteer({ name: "Worker", message: "  " }, () => {});
+      const result = await testApi.handleSubagentSteer({ name: "Worker", message: "  " }, async () => {});
       assert.match(result.content[0].text, /`message` is required/);
     } finally {
       runningMap.clear();
     }
   });
 
-  it("leaves status unchanged when steering delivery fails in the tool path", () => {
+  it("leaves status unchanged when steering delivery fails in the tool path", async () => {
     const testApi = (subagentsModule as any).__test__;
     const runningMap = testApi.runningSubagents as Map<string, any>;
     runningMap.clear();
@@ -2321,9 +2321,9 @@ describe("subagent interruption", () => {
     try {
       runningMap.set("a1", makeRunning({ statusState: activeState }));
 
-      const result = withMockedNow(20_000, () =>
-        testApi.handleSubagentSteer({ name: "Worker", message: "go" }, () => {
-          throw new Error("mux write failed");
+      const result = await withMockedNow(20_000, async () =>
+        testApi.handleSubagentSteer({ name: "Worker", message: "go" }, async () => {
+          throw new Error("Orca write failed");
         }),
       );
 
@@ -2652,7 +2652,7 @@ describe("subagent display helpers", () => {
   });
 });
 
-describe("tmux.ts", () => {
+describe("orca.ts", () => {
   describe("shellEscape", () => {
     it("wraps in single quotes", () => {
       assert.equal(shellEscape("hello"), "'hello'");
