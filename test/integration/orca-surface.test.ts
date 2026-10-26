@@ -8,7 +8,7 @@
  * Run from an Orca terminal:
  *   npm run test:integration
  */
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { unlinkSync } from "node:fs";
 import {
@@ -46,11 +46,11 @@ for (const backend of backends) {
   describe(`orca-surface [${backend}]`, { timeout: 180_000 }, () => {
     let env: TestEnv;
 
-    before(() => {
+    beforeEach(() => {
       env = createTestEnv();
     });
 
-    after(async () => {
+    afterEach(async () => {
       await cleanupTestEnv(env);
     });
 
@@ -126,7 +126,7 @@ for (const backend of backends) {
 
       const marker = uniqueId();
       const longValue = "X".repeat(500);
-      const command = `echo "LONG_${marker}_${longValue}_END"`;
+      const command = `printf '%s\\n' '${longValue}'; echo "LONG_${marker}_END"`;
 
       await sendLongCommand(surface, command);
       await sleep(2000);

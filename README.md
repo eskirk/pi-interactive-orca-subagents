@@ -17,7 +17,7 @@ Async subagents for [Pi](https://github.com/badlogic/pi-mono), running in native
 
 Spawn several in parallel — they run concurrently and steer results back independently as each finishes.
 
-Pane layout is managed by Orca. The extension uses native horizontal or vertical terminal splits and does not impose a separate layout policy.
+Pane layout is managed by Orca. Subagent panes use native vertical (top/bottom) terminal splits by default.
 
 If your shell startup is slow and launch commands get dropped before the prompt is ready, raise the delay:
 

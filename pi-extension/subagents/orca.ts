@@ -203,7 +203,7 @@ export function shellEscape(value: string): string {
  * Returns the new Orca terminal handle.
  */
 export async function createSurface(name?: string): Promise<string> {
-  return createSurfaceSplit(name, "right");
+  return createSurfaceSplit(name, "down");
 }
 
 /**
