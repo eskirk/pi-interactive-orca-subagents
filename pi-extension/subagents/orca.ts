@@ -141,46 +141,6 @@ function getTerminalHandle(payload: unknown): string {
   return handle;
 }
 
-function findActivePane(node: unknown): string | null {
-  if (!node || typeof node !== "object") return null;
-  const record = node as JsonRecord;
-  if (record.type === "terminal" && record.active && typeof record.handle === "string") {
-    return record.handle;
-  }
-
-  for (const child of Object.values(record)) {
-    const handle = findActivePane(child);
-    if (handle) return handle;
-  }
-  return null;
-}
-
-async function getFocusedSurface(): Promise<string | null> {
-  try {
-    const worktree = process.env.ORCA_WORKTREE_ID
-      ? `id:${process.env.ORCA_WORKTREE_ID}`
-      : "active";
-    const payload = await runOrca([
-      "terminal",
-      "list",
-      "--worktree",
-      worktree,
-      "--include-visual-layouts",
-    ]);
-    const result = getResult(payload);
-    const layouts = Array.isArray(result.visualLayouts) ? result.visualLayouts : [];
-    for (const layout of layouts) {
-      const root = asRecord(layout?.root);
-      const activeTab = Array.isArray(root?.tabs)
-        ? root.tabs.find((tab: any) => tab?.tabId === root?.activeTabId)
-        : undefined;
-      const handle = findActivePane(activeTab?.panes);
-      if (handle) return handle;
-    }
-  } catch {}
-  return null;
-}
-
 function getTerminalLines(payload: unknown): string {
   const result = getResult(payload);
   const terminal = asRecord(result.terminal) ?? result;
@@ -220,7 +180,6 @@ export async function createSurfaceSplit(
   if (!parent) throw new Error(`No parent Orca terminal handle. ${orcaSetupHint()}`);
 
   const orientation = direction === "left" || direction === "right" ? "horizontal" : "vertical";
-  const focusedSurface = await getFocusedSurface();
   const surface = getTerminalHandle(
     await runOrca([
       "terminal",
@@ -239,12 +198,8 @@ export async function createSurfaceSplit(
     } catch {}
   }
 
-  // Orca focuses a freshly split pane; return focus to the original pane so
-  // spawning does not interrupt the user.
-  try {
-    await runOrca(["terminal", "switch", "--terminal", focusedSurface ?? parent]);
-  } catch {}
-
+  // leave focus management to Orca. Switching back here can pull the user out
+  // of another worktree while the asynchronous subagent launch is finishing.
   return surface;
 }
 

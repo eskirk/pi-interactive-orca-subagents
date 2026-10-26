@@ -54,7 +54,7 @@ for (const backend of backends) {
       await cleanupTestEnv(env);
     });
 
-    it("keeps focus on the active surface while creating and targeting subagent surfaces", async () => {
+    it("leaves split focus under Orca control while creating and targeting subagent surfaces", async () => {
       const anchor = await createTrackedSurfaceSplit(env, "focus-anchor", "right");
       await sleep(1000);
 
@@ -63,11 +63,11 @@ for (const backend of backends) {
 
       const childA = await createTrackedSurface(env, "focus-child-a");
       await sleep(FOCUS_TEST_SHELL_READY_DELAY_MS);
-      assert.equal(getFocusedSurface(), anchor);
+      assert.equal(getFocusedSurface(), childA);
 
       const childB = await createTrackedSurface(env, "focus-child-b");
       await sleep(FOCUS_TEST_SHELL_READY_DELAY_MS);
-      assert.equal(getFocusedSurface(), anchor);
+      assert.equal(getFocusedSurface(), childB);
 
       const markerA = uniqueId();
       const markerB = uniqueId();
@@ -78,7 +78,7 @@ for (const backend of backends) {
         waitForScreen(childA, new RegExp(`FOCUS_A_${markerA}`), 20_000, 50),
         waitForScreen(childB, new RegExp(`FOCUS_B_${markerB}`), 20_000, 50),
       ]);
-      assert.equal(getFocusedSurface(), anchor);
+      assert.equal(getFocusedSurface(), childB);
     });
 
     it("creates a surface, sends a command, reads output, and closes it", async () => {
