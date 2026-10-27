@@ -179,9 +179,21 @@ Status display is configured via `config.json` in the extension directory (copy 
 
 ## Install
 
+Install the published package from npm:
+
+```bash
+pi install npm:pi-interactive-orca-subagents
+```
+
+To install the latest GitHub branch instead:
+
 ```bash
 pi install git:github.com/eskirk/pi-interactive-orca-subagents
 ```
+
+## Publishing
+
+Publishing a GitHub release runs the package workflow and publishes the package to npm. Add an `NPM_TOKEN` repository secret before publishing the first release.
 
 ## Requirements
 

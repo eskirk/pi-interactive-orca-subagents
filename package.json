@@ -5,6 +5,16 @@
   "keywords": [
     "pi-package"
   ],
+  "files": [
+    "agents/",
+    "pi-extension/",
+    "README.md",
+    "LICENSE",
+    "config.json.example"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
   "author": "Amos Blomqvist",
   "repository": {
