@@ -4,6 +4,8 @@ Async subagents for [Pi](https://github.com/badlogic/pi-mono), running in native
 
 **Orca-only fork.** This fork replaces the tmux surface layer with Orca's terminal CLI and native pane splitting.
 
+[See it in action](https://github.com/user-attachments/assets/6ab743ce-0ea0-489b-97d7-69f65715daec)
+
 ## How it works
 
 `subagent()` returns immediately. The sub-agent runs in its own Orca terminal pane, split from the parent Pi terminal. A live widget above the input tracks every running sub-agent, and when one finishes, its result is steered into the main session as a notification that triggers a new turn.
