@@ -81,8 +81,20 @@ If the reply arrives while the sub-agent is still mid-turn, it is absorbed into 
 | **scout** | `openrouter/deepseek/deepseek-v4.1-flash` | `read`, `grep`, `find`, `ls` | Fast read-only codebase recon |
 | **researcher** | `openrouter/deepseek/deepseek-v4.1-flash` | `web_search`, `web_fetch`, `safe_bash` | Web research, synthesized into a sourced brief |
 | **worker** | `openrouter/deepseek/deepseek-v4.1-flash` | `read`, `write`, `edit`, `bash`, `web_search`, `web_fetch` + spawning | General implementer; may spawn `scout` and `researcher` |
+| **reviewer** | `anthropic/claude-opus-5-5` | `read`, `grep`, `find`, `ls` | Independent, read-only code review |
 
-All three are autonomous (`auto-exit: true`) and carry their identity in the system prompt (`system-prompt: append`).
+All four are autonomous (`auto-exit: true`) and carry their identity in the system prompt (`system-prompt: append`).
+
+The reviewer uses Pi's native Anthropic model provider, not the Claude Code CLI. Its task should include the actual patch, intended behavior, and relevant constraints; it has no shell or Git-diff tool, so pass the diff in the task prompt. The model ID is pinned for reproducibility and can be changed to another Opus model available in your Pi model catalog.
+
+To review a change, include its full diff and intent in the task:
+
+```typescript
+subagent({
+  agent: "reviewer",
+  task: `Review this patch. Intent: <describe expected behavior>\n\nPatch:\n<paste unified diff here>`,
+});
+```
 
 ## Custom agents
 
