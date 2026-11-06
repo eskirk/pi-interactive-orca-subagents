@@ -1172,8 +1172,8 @@ describe("subagent discovery", () => {
     );
   });
 
-  it("bundled scout/researcher/worker all resolve as non-interactive (auto-exit)", () => {
-    for (const name of ["scout", "researcher", "worker"]) {
+  it("bundled scout/researcher/worker/reviewer all resolve as non-interactive (auto-exit)", () => {
+    for (const name of ["scout", "researcher", "worker", "reviewer"]) {
       const defs = testApi.loadAgentDefaults(name);
       assert.ok(defs, `expected bundled agent ${name} to be discoverable`);
       assert.equal(
@@ -1182,6 +1182,23 @@ describe("subagent discovery", () => {
         `${name} should resolve as non-interactive (autonomous, auto-exit)`,
       );
     }
+  });
+
+  it("bundled reviewer uses the native Opus model and a read-only tool allowlist", () => {
+    const reviewer = testApi.loadAgentDefaults("reviewer");
+    assert.ok(reviewer, "expected bundled reviewer to be discoverable");
+    assert.equal(reviewer.model, "anthropic/claude-opus-5-5");
+    assert.deepEqual(reviewer.tools?.split(",").map((tool: string) => tool.trim()), [
+      "read",
+      "grep",
+      "find",
+      "ls",
+    ]);
+    assert.equal(reviewer.cli, undefined, "reviewer should use the native Pi model path");
+    assert.equal(reviewer.sessionMode, "standalone");
+    assert.equal(reviewer.autoExit, true);
+    assert.equal(reviewer.systemPromptMode, "append");
+    assert.equal(reviewer.subagentAgents, undefined);
   });
 
   it("worker is granted the spawning toolset restricted to scout and researcher", () => {
