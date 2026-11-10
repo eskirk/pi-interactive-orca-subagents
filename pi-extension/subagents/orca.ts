@@ -14,6 +14,7 @@ import { promisify } from "node:util";
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { readSubagentActivityFile } from "./activity.ts";
 
 const execFileAsync = promisify(execFile);
 const ORCA_JSON_BUFFER = 10 * 1024 * 1024;
@@ -290,8 +291,9 @@ function interpretExitSidecar(data: any): PollResult {
 export const __pollForExitTest__ = { interpretExitSidecar };
 
 /**
- * Poll until the subagent exits. Sidecars and sentinels remain authoritative;
- * Orca screen reads provide crash detection without changing child lifecycle.
+ * Poll until the subagent exits. Error sidecars and shell sentinels remain
+ * authoritative, with the child's explicit `done` activity snapshot as a
+ * fallback if Orca fails to expose the shell sentinel after Pi shuts down.
  */
 export async function pollForExit(
   surface: string,
@@ -300,6 +302,8 @@ export async function pollForExit(
     interval: number;
     sessionFile?: string;
     sentinelFile?: string;
+    activityFile?: string;
+    activityId?: string;
     onTick?: (elapsed: number) => void;
   },
 ): Promise<PollResult> {
@@ -323,6 +327,16 @@ export async function pollForExit(
       try {
         if (existsSync(options.sentinelFile)) return { reason: "sentinel", exitCode: 0 };
       } catch {}
+    }
+
+    // `agent_end` writes this synchronously immediately before requesting Pi
+    // shutdown. Usually the shell sentinel appears moments later, but some
+    // terminal shutdown paths leave the child pane alive after the work is
+    // complete. Treat only the validated `done` phase as completion; `waiting`
+    // is intentional (e.g. ask_question or child subagents still in flight).
+    if (options.activityFile && options.activityId) {
+      const read = readSubagentActivityFile(options.activityFile, options.activityId);
+      if (read.ok && read.activity.phase === "done") return { reason: "done", exitCode: 0 };
     }
 
     try {

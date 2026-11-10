@@ -30,7 +30,7 @@ import {
   summarizeSessionStats,
 } from "../pi-extension/subagents/session.ts";
 
-import { shellEscape } from "../pi-extension/subagents/orca.ts";
+import { pollForExit, shellEscape } from "../pi-extension/subagents/orca.ts";
 import {
   advanceStatusState,
   capStatusLines,
@@ -1758,6 +1758,32 @@ describe("subagent-done.ts", () => {
   });
 });
 
+describe("orca.ts pollForExit", () => {
+  it("treats a validated done activity snapshot as completion if no shell sentinel appears", async () => {
+    const dir = createTestDir();
+    try {
+      const activityFile = getSubagentActivityFile(dir, "child-1");
+      const recorder = createSubagentActivityRecorder({
+        runningChildId: "child-1",
+        activityFile,
+        now: () => 1_000,
+      });
+      recorder.sessionStart();
+      recorder.agentEndDone();
+
+      const result = await pollForExit("unused", new AbortController().signal, {
+        interval: 5,
+        activityFile,
+        activityId: "child-1",
+      });
+
+      assert.deepEqual(result, { reason: "done", exitCode: 0 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("orca.ts interpretExitSidecar", () => {
   const { interpretExitSidecar } = __pollForExitTest__;
 
@@ -2256,6 +2282,38 @@ describe("subagent interruption", () => {
     });
 
     assert.match(result.error, /Failed to deliver message/);
+  });
+
+  it("does not type into the terminal after the activity snapshot says the child is done", async () => {
+    const testApi = (subagentsModule as any).__test__;
+    const runningMap = testApi.runningSubagents as Map<string, any>;
+    const dir = createTestDir();
+    let sent = false;
+    runningMap.clear();
+
+    try {
+      const activityFile = getSubagentActivityFile(dir, "a1");
+      const recorder = createSubagentActivityRecorder({
+        runningChildId: "a1",
+        activityFile,
+        now: () => 1_000,
+      });
+      recorder.sessionStart();
+      recorder.agentEndDone();
+      runningMap.set("a1", makeRunning({ id: "a1", activityFile }));
+
+      const result = await testApi.handleSubagentSteer(
+        { name: "Worker", message: "follow up" },
+        async () => { sent = true; },
+      );
+
+      assert.equal(sent, false);
+      assert.equal(result.details.status, "completed");
+      assert.match(result.content[0].text, /did not send text to its terminal/);
+    } finally {
+      runningMap.clear();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("delivers a steer message and forces local status waiting", async () => {

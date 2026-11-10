@@ -1036,6 +1036,22 @@ async function handleSubagentSteer(
   const now = Date.now();
   observeRunningSubagent(running, now);
 
+  // The activity `done` marker is written before Pi requests shutdown. The
+  // terminal may already have returned to its shell while the watcher is still
+  // reconciling the missing sentinel, so never type follow-up text into a
+  // subagent whose validated snapshot says it has finished.
+  if (running.activity?.phase === "done") {
+    return {
+      content: [{
+        type: "text" as const,
+        text:
+          `Subagent "${running.name}" has finished; I did not send text to its terminal. ` +
+          `Its completion result is being reconciled. Retry after that result arrives to resume it.`,
+      }],
+      details: { id: running.id, name: running.name, status: "completed" },
+    };
+  }
+
   const steer = await steerSubagent(running, message, send);
   if ("error" in steer) {
     return {
@@ -1532,6 +1548,8 @@ async function watchSubagent(
       interval: 1000,
       sessionFile,
       sentinelFile: running.sentinelFile,
+      activityFile: running.activityFile,
+      activityId: running.id,
       onTick() {
         observeRunningSubagent(running);
         deliverPendingQuestion(running);
